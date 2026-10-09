@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matrix Profile Infosiga</title>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e; --grid: #e6e5e1; --border: #d6d5d0;
+    --serie: #2a78d6; --discord: #e34948; --motif: #4a3aa7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface: #1a1a19; --text: #ffffff; --text-2: #c3c2b7; --grid: #2e2e2c; --border: #3a3a37;
+      --serie: #3987e5; --discord: #e66767; --motif: #9085e9;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface: #1a1a19; --text: #ffffff; --text-2: #c3c2b7; --grid: #2e2e2c; --border: #3a3a37;
+    --serie: #3987e5; --discord: #e66767; --motif: #9085e9;
+  }
+  body { margin: 0; background: var(--surface); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .meta, .resumo { color: var(--text-2); margin: 0 0 16px; }
+  .filtros { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+  label { display: flex; flex-direction: column; font-size: .8rem; color: var(--text-2); }
+  select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; min-width: 160px; }
+  #grafico { height: 620px; }
+  .chave { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; opacity: .6; }
+  a { color: var(--serie); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Matrix profile dos sinistros de trânsito — SP</h1>
+  <p class="meta" id="meta"></p>
+  <div class="filtros">
+    <label>Série <select id="serie"></select></label>
+    <label>Granularidade <select id="gran"></select></label>
+    <label>Janela (m) <select id="janela"></select></label>
+  </div>
+  <p class="resumo" id="resumo"></p>
+  <div id="grafico"></div>
+  <p class="meta">
+    O matrix profile mede, para cada subsequência de tamanho m, a distância até a subsequência mais parecida no resto da série.
+    Valores altos indicam comportamento atípico; o maior deles é o <b>discord</b>. Valores baixos indicam padrões recorrentes; o menor é o <b>motif</b>.
+    Fonte: <a href="https://infosiga.detran.sp.gov.br/">Infosiga SP</a> (dados abertos). <a href="series.csv">Baixar dados (CSV)</a>.
+  </p>
+</main>
+<script>
+const D = __DATA__;
+const NOMES = { fatais: "Sinistros fatais", nao_fatais: "Sinistros não fatais", totais: "Sinistros totais", obitos: "Óbitos" };
+const GRANS = { mensal: ["Mensal", "meses"], semanal: ["Semanal", "semanas"], diaria: ["Diária", "dias"] };
+const $ = id => document.getElementById(id);
+const fmt = (s, g) => new Date(s + "T00:00").toLocaleDateString("pt-BR", g === "mensal" ? { month: "short", year: "numeric" } : {});
+
+function opcoes(sel, pares) {
+  const atual = sel.value;
+  sel.replaceChildren(...pares.map(([v, t]) => Object.assign(document.createElement("option"), { value: v, textContent: t })));
+  if (pares.some(([v]) => String(v) === atual)) sel.value = atual;
+}
+
+opcoes($("serie"), Object.entries(NOMES));
+opcoes($("gran"), Object.entries(GRANS).map(([k, [t]]) => [k, t]));
+$("meta").textContent = `Dados de ${fmt(D.inicio)} a ${fmt(D.fim)} · atualizado em ${fmt(D.gerado_em)}`;
+
+function render() {
+  const g = $("gran").value, s = $("serie").value;
+  opcoes($("janela"), D.janelas[g].map(m => [m, `${m} ${GRANS[g][1]}`]));
+  const m = Number($("janela").value);
+  const css = getComputedStyle(document.documentElement);
+  const c = v => css.getPropertyValue(v).trim();
+  const x = D.series[g].x, y = D.series[g][s], r = D.mp[g][s][m];
+  const mpX = x.slice(0, r.mp.length);
+
+  const faixa = (i, cor) => i == null ? [] : ["y", "y2"].map(yref => ({
+    type: "rect", xref: "x", yref: `${yref} domain`, x0: x[i], x1: x[i + m] ?? x[i + m - 1], y0: 0, y1: 1,
+    fillcolor: cor, opacity: .15, line: { width: 0 }, layer: "below",
+  }));
+  const periodo = i => i == null ? "—" : `${fmt(x[i], g)} a ${fmt(x[i + m - 1], g)}`;
+
+  const resumo = $("resumo");
+  resumo.replaceChildren();
+  for (const [cor, nome, i] of [["--discord", "Discord", r.discord], ["--motif", "Motif", r.motif]]) {
+    const k = Object.assign(document.createElement("span"), { className: "chave" });
+    k.style.background = c(cor);
+    resumo.append(k, `${nome}: ${periodo(i)}   `);
+  }
+
+  const eixo = { gridcolor: c("--grid"), zerolinecolor: c("--grid"), linecolor: c("--border"), tickfont: { color: c("--text-2") } };
+  Plotly.react("grafico", [
+    { x, y, name: NOMES[s], type: "scatter", mode: "lines", line: { color: c("--serie"), width: 2 },
+      hovertemplate: "%{y:,.0f}<extra></extra>" },
+    { x: mpX, y: r.mp, name: "Matrix profile", type: "scatter", mode: "lines", yaxis: "y2",
+      line: { color: c("--text-2"), width: 2 }, hovertemplate: "MP %{y:.2f}<extra></extra>" },
+  ], {
+    paper_bgcolor: c("--surface"), plot_bgcolor: c("--surface"), font: { color: c("--text"), family: "system-ui, sans-serif" },
+    margin: { l: 56, r: 16, t: 32, b: 40 }, showlegend: false, hovermode: "x unified",
+    hoverlabel: { bgcolor: c("--surface"), bordercolor: c("--border"), font: { color: c("--text") } },
+    xaxis: { ...eixo, anchor: "y2", showspikes: true, spikemode: "across", spikethickness: 1, spikecolor: c("--text-2"), spikedash: "solid" },
+    yaxis: { ...eixo, domain: [0.55, 1], rangemode: "tozero", title: { text: NOMES[s], font: { size: 12, color: c("--text-2") } } },
+    yaxis2: { ...eixo, domain: [0, 0.42], rangemode: "tozero", title: { text: `Matrix profile (m = ${m})`, font: { size: 12, color: c("--text-2") } } },
+    shapes: [...faixa(r.discord, c("--discord")), ...faixa(r.motif, c("--motif"))],
+  }, { responsive: true, displaylogo: false, locale: "pt-BR" });
+}
+
+for (const id of ["serie", "gran", "janela"]) $(id).addEventListener("change", render);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+render();
+</script>
+</body>
+</html>

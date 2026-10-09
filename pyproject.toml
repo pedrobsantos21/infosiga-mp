@@ -1,0 +1,17 @@
+[project]
+name = "infosiga-mp"
+version = "0.1.0"
+description = "Matrix profile dos sinistros de trânsito do Infosiga SP"
+authors = [
+    { name = "pedrobsantos21", email = "pedro.santos@detran.sp.gov.br" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "polars>=2.0.0",
+    "stumpy>=1.14.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
